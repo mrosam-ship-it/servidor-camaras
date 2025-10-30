@@ -1,0 +1,13 @@
+{
+  "name": "servidor-camaras",
+  "version": "1.0.0",
+  "description": "Servidor señalizador para cámaras WebRTC",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.15.1"
+  }
+}
