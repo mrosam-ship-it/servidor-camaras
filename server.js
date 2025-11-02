@@ -1,64 +1,76 @@
-// server.js
 const express = require("express");
-const WebSocket = require("ws");
-
+const fs = require("fs");
+const path = require("path");
 const app = express();
-const port = process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000;
 
-// Servidor HTTP básico (Render lo usa para comprobar que está activo)
-app.get("/", (req, res) => {
-  res.send("Servidor de cámaras activo");
-});
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-const server = app.listen(port, () => {
-  console.log(`Servidor escuchando en puerto ${port}`);
-});
+// 📁 Carpeta donde se guardan los vídeos y fotos
+const uploadsPath = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadsPath)) fs.mkdirSync(uploadsPath);
 
-// Servidor WebSocket
-const wss = new WebSocket.Server({ server });
+// 🌐 Permitir acceso público a la carpeta uploads
+app.use("/uploads", express.static(uploadsPath));
 
-let cameras = {}; // idCamara → socket
-let viewers = {}; // idCamara → lista de sockets
-
-wss.on("connection", (ws) => {
-  console.log("Nueva conexión WebSocket");
-
-  ws.on("message", (msg) => {
-    try {
-      const data = JSON.parse(msg);
-
-      // Registro de cámara
-      if (data.type === "register" && data.role === "camera") {
-        cameras[data.cameraId] = ws;
-        console.log(`📷 Cámara registrada: ${data.cameraId}`);
-      }
-
-      // Registro de visor
-      else if (data.type === "register" && data.role === "viewer") {
-        if (!viewers[data.cameraId]) viewers[data.cameraId] = [];
-        viewers[data.cameraId].push(ws);
-        console.log(`👁️ Visor conectado a: ${data.cameraId}`);
-
-        // Si la cámara está activa, enviarle la petición para iniciar stream
-        if (cameras[data.cameraId]) {
-          cameras[data.cameraId].send(
-            JSON.stringify({ type: "viewer-connected", cameraId: data.cameraId })
-          );
-        }
-      }
-
-      // Retransmisión de mensajes WebRTC
-      else if (data.type === "signal") {
-        const target = data.to === "camera" ? cameras[data.cameraId] : viewers[data.cameraId]?.[0];
-        if (target) target.send(JSON.stringify(data));
-      }
-    } catch (err) {
-      console.error("Error procesando mensaje:", err);
+// 🧩 Listar archivos (página web)
+app.get("/uploads", (req, res) => {
+  fs.readdir(uploadsPath, (err, files) => {
+    if (err) {
+      return res.status(500).send("Error al leer los archivos");
     }
-  });
 
-  ws.on("close", () => {
-    for (const id in cameras) if (cameras[id] === ws) delete cameras[id];
-    for (const id in viewers) viewers[id] = viewers[id].filter((s) => s !== ws);
+    // Generar HTML básico
+    let html = `
+      <html>
+      <head>
+        <title>📹 Vigilancia - Archivos</title>
+        <style>
+          body { font-family: Arial; background: #f0f0f0; color: #333; padding: 20px; }
+          h1 { text-align: center; }
+          .file { margin: 10px 0; padding: 10px; background: #fff; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+          video, img { max-width: 100%; border-radius: 8px; margin-top: 8px; }
+        </style>
+      </head>
+      <body>
+        <h1>📁 Archivos de Vigilancia</h1>
+        ${files
+          .map((f) => {
+            const ext = path.extname(f).toLowerCase();
+            if ([".mp4", ".mov", ".webm"].includes(ext))
+              return `<div class='file'><strong>${f}</strong><br><video controls src="/uploads/${f}"></video></div>`;
+            else if ([".jpg", ".jpeg", ".png"].includes(ext))
+              return `<div class='file'><strong>${f}</strong><br><img src="/uploads/${f}"></div>`;
+            else
+              return `<div class='file'><strong><a href="/uploads/${f}" target="_blank">${f}</a></strong></div>`;
+          })
+          .join("")}
+      </body>
+      </html>
+    `;
+    res.send(html);
   });
 });
+
+// 🗑️ Eliminar archivo
+app.delete("/uploads/delete/:filename", (req, res) => {
+  const filePath = path.join(uploadsPath, req.params.filename);
+  fs.unlink(filePath, (err) => {
+    if (err)
+      return res
+        .status(404)
+        .json({ success: false, message: "Archivo no encontrado o error al eliminar." });
+    res.json({ success: true, message: "Archivo eliminado correctamente." });
+  });
+});
+
+// ✅ Página principal
+app.get("/", (req, res) => {
+  res.send("✅ Servidor Vigilancia activo y funcionando correctamente.");
+});
+
+app.listen(PORT, () => {
+  console.log(`Servidor escuchando en puerto ${PORT}`);
+});
+
